@@ -1961,11 +1961,44 @@ static void before_input_handle_event(hook_fargs4_t *args, void *udata)
     }
 }
 
+static int is_android_recovery_mode(void)
+{
+    const char *cmdline;
+    unsigned long addr;
+    addr = kallsyms_lookup_name("saved_command_line");
+    if (!addr)
+        addr = kallsyms_lookup_name("boot_command_line");
+    if (!addr)
+        return 0;
+    cmdline = *(const char **)addr;
+    /* Some kernels export the char[] symbol directly */
+    if (!cmdline)
+        cmdline = (const char *)addr;
+    if (!cmdline)
+        return 0;
+    /* Classic Android bootloader cmdline */
+    if (strstr(cmdline, "androidboot.mode=recovery"))
+        return 1;
+    /* bootconfig style (spaces around '=') */
+    if (strstr(cmdline, "androidboot.mode = \"recovery\"") ||
+        strstr(cmdline, "androidboot.mode=\"recovery\""))
+        return 1;
+    /* Some OEMs / chargers */
+    if (strstr(cmdline, "androidboot.mode=charger"))
+        return 1;
+    return 0;
+}
+
 int android_user_init()
 {
     hook_err_t ret = 0;
     hook_err_t rc = HOOK_NO_ERR;
 
+    if (is_android_recovery_mode()) {
+        log_boot("android_user_init: recovery/charger mode, skip hooks\n");
+        return 0;
+    }
+    
     rc = hook_syscalln(__NR_execve, 3, before_execve, after_execve, (void *)__NR_execve);
     log_boot("hook __NR_execve rc: %d\n", rc);
     ret |= rc;
